@@ -23,7 +23,7 @@
   },
   "homepage": "https://github.com/IChaudhry892/jwks-server#readme",
   "dependencies": {
-    "express": "^5.2.1",
+    "express": "^4.21.0",
     "jsonwebtoken": "^9.0.3"
   }
 }

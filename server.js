@@ -4,64 +4,28 @@
  * and issues signed JWTs for authentication. Implements proper HTTP method
  * enforcement and RESTful status codes.
  *
- * Built on Node.js's native http module for full control over HTTP method
- * handling and status code responses.
- *
  * Endpoints:
  *   GET  /.well-known/jwks.json - Serves unexpired public keys in JWKS format
  *   POST /auth                  - Issues a signed JWT (supports ?expired=true query param)
  */
 
-const http = require('http');
-
+const express = require('express');
 const jwt = require('jsonwebtoken');
 const { keys } = require('./keyManager');
 
+const app = express();
 const PORT = 8080;
 
 /**
- * Sends a JSON response with the given status code and body.
- *
- * @param {http.ServerResponse} res - The HTTP response object.
- * @param {number} statusCode - The HTTP status code to send.
- * @param {Object|string} body - The response body (object will be JSON-serialized).
- * @param {Object} [extraHeaders={}] - Additional headers to include in the response.
- */
-function sendJson(res, statusCode, body, extraHeaders = {}) {
-  const jsonBody = JSON.stringify(body);
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(jsonBody),
-    ...extraHeaders,
-  });
-  res.end(jsonBody);
-}
-
-/**
- * Sends a plain text response with the given status code.
- *
- * @param {http.ServerResponse} res - The HTTP response object.
- * @param {number} statusCode - The HTTP status code to send.
- * @param {string} text - The plain text response body.
- */
-function sendText(res, statusCode, text) {
-  res.writeHead(statusCode, {
-    'Content-Type': 'text/plain',
-    'Content-Length': Buffer.byteLength(text),
-  });
-  res.end(text);
-}
-
-/**
- * Handles GET requests to /.well-known/jwks.json
+ * GET /.well-known/jwks.json
  *
  * Returns all unexpired public keys in standard JWKS format.
  * Expired keys are filtered out so verifiers only see currently-valid keys.
  *
- * @param {http.IncomingMessage} req - The HTTP request object.
- * @param {http.ServerResponse} res - The HTTP response object.
+ * @returns {Object} 200 - A JWKS object containing an array of unexpired JWK public keys.
+ * @returns {Object} 500 - Internal server error if key retrieval fails.
  */
-function handleJWKS(req, res) {
+app.get('/.well-known/jwks.json', (req, res) => {
   try {
     const currentTime = Math.floor(Date.now() / 1000);
 
@@ -71,15 +35,15 @@ function handleJWKS(req, res) {
       .map(key => key.publicKey);
 
     // Return all unexpired public keys in JWKS format
-    sendJson(res, 200, { keys: validKeys });
+    return res.status(200).json({ keys: validKeys });
   } catch (error) {
     console.error("JWKS Error: ", error);
-    sendJson(res, 500, { error: "Internal Server Error while fetching JWKS." });
+    return res.status(500).json({ error: "Internal Server Error while fetching JWKS." });
   }
-}
+});
 
 /**
- * Handles POST requests to /auth
+ * POST /auth
  *
  * Issues a signed JWT using an RSA key pair. By default, returns a JWT signed
  * with an unexpired key. If the query parameter `expired=true` is present,
@@ -88,14 +52,14 @@ function handleJWKS(req, res) {
  * No request body is required — this endpoint mocks authentication for
  * educational purposes.
  *
- * @param {http.IncomingMessage} req - The HTTP request object.
- * @param {http.ServerResponse} res - The HTTP response object.
- * @param {Object} queryParams - Parsed query parameters from the request URL.
+ * @queryParam {string} [expired] - If "true", issue a JWT signed with an expired key.
+ * @returns {string} 200 - A signed JWT string.
+ * @returns {Object} 500 - Internal server error if no appropriate key is found or signing fails.
  */
-function handleAuth(req, res, searchParams) {
+app.post('/auth', (req, res) => {
   try {
     // Check if the "?expired=true" query parameter is present
-    const isExpiredRequested = searchParams.get('expired') === 'true';
+    const isExpiredRequested = req.query.expired === 'true';
     const currentTime = Math.floor(Date.now() / 1000);
 
     // Select the appropriate key: expired or unexpired based on query parameter
@@ -108,7 +72,7 @@ function handleAuth(req, res, searchParams) {
 
     // Return 500 if no appropriate key is found in the keys array
     if (!targetKey) {
-      return sendJson(res, 500, { error: "Appropriate key not found." });
+      return res.status(500).json({ error: "Appropriate key not found." });
     }
 
     // Create a mock payload (no real user verification for this project)
@@ -129,59 +93,41 @@ function handleAuth(req, res, searchParams) {
       keyid: targetKey.kid,
     });
 
-    sendText(res, 200, token);
+    return res.status(200).send(token);
   } catch (error) {
     console.error("Auth Error: ", error);
-    sendJson(res, 500, { error: "Internal Server Error while generating JWT." });
+    return res.status(500).json({ error: "Internal Server Error while generating JWT." });
   }
-}
+});
 
 /**
- * Main request router.
+ * Method Not Allowed handlers.
  *
- * Routes incoming HTTP requests to the appropriate handler based on the
- * request path and method. Enforces proper RESTful HTTP method/status code
- * semantics:
- *   - 200 for successful requests
- *   - 405 Method Not Allowed for valid paths with wrong HTTP methods
- *   - 404 Not Found for undefined paths
- *
- * @param {http.IncomingMessage} req - The HTTP request object.
- * @param {http.ServerResponse} res - The HTTP response object.
+ * RESTful APIs must return 405 Method Not Allowed (not 404) when a valid
+ * resource is accessed with an unsupported HTTP method. These app.all()
+ * handlers catch any method not already handled by the specific route above.
  */
-function requestHandler(req, res) {
-  // Parse the URL to extract the pathname and query parameters
-  const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = parsedUrl.pathname;
-  const method = req.method;
+app.all('/.well-known/jwks.json', (req, res) => {
+  res.set('Allow', 'GET');
+  return res.status(405).json({ error: "Method Not Allowed." });
+});
 
-  // Route: /.well-known/jwks.json
-  if (pathname === '/.well-known/jwks.json') {
-    if (method === 'GET' || method === 'HEAD') {
-      return handleJWKS(req, res);
-    }
-    // Any other method on this endpoint is not allowed
-    return sendJson(res, 405, { error: "Method Not Allowed" }, { 'Allow': 'GET' });
-  }
+app.all('/auth', (req, res) => {
+  res.set('Allow', 'POST');
+  return res.status(405).json({ error: "Method Not Allowed." });
+});
 
-  // Route: /auth
-  if (pathname === '/auth') {
-    if (method === 'POST') {
-      return handleAuth(req, res, parsedUrl.searchParams);
-    }
-    // Any other method on this endpoint is not allowed
-    return sendJson(res, 405, { error: "Method Not Allowed" }, { 'Allow': 'POST' });
-  }
+/**
+ * Catch-all handler for undefined routes.
+ * Returns 404 Not Found for any request that doesn't match a defined endpoint.
+ */
+app.all('*', (req, res) => {
+  return res.status(404).json({ error: "Not Found." });
+});
 
-  // No matching route — return 404 Not Found
-  sendJson(res, 404, { error: "Not Found." });
-}
-
-// Create and start the HTTP server
-const server = http.createServer(requestHandler);
-
-server.listen(PORT, () => {
+// Start the web server — export the app for testing
+const server = app.listen(PORT, () => {
   console.log(`JWKS server running on http://localhost:${PORT}`);
 });
 
-module.exports = { server, requestHandler };
+module.exports = { app, server };
