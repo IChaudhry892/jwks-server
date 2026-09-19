@@ -125,9 +125,12 @@ app.all('*', (req, res) => {
   return res.status(404).json({ error: "Not Found." });
 });
 
-// Start the web server — export the app for testing
-const server = app.listen(PORT, () => {
-  console.log(`JWKS server running on http://localhost:${PORT}`);
-});
+// Start the web server only when run directly (not when imported for testing)
+let server;
+if (require.main === module) {
+  server = app.listen(PORT, () => {
+    console.log(`JWKS server running on http://localhost:${PORT}`);
+  });
+}
 
 module.exports = { app, server };
