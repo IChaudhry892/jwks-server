@@ -1,8 +1,8 @@
 {
   "name": "jwks-server",
   "version": "1.0.0",
-  "description": "��#\u0000 \u0000j\u0000w\u0000k\u0000s\u0000-\u0000s\u0000e\u0000r\u0000v\u0000e\u0000r\u0000\r\u0000 \u0000",
-  "main": "keyManager.js",
+  "description": "A RESTful JWKS server for serving public keys and issuing signed JWTs.",
+  "main": "server.js",
   "directories": {
     "test": "tests"
   },

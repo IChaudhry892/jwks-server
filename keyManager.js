@@ -1,11 +1,31 @@
 const crypto = require("crypto");
 
-// Array to store generated keys
+/**
+ * @module keyManager
+ * @description Manages RSA key pair generation, storage, and retrieval for the JWKS server.
+ * Each key has an associated Key ID (kid) and expiry timestamp.
+ */
+
+/** @type {Array<KeyData>} Array to store all generated key pairs (both valid and expired). */
 const keys = [];
 
-// Function to generate key data
+/**
+ * @typedef {Object} KeyData
+ * @property {string} kid - Unique Key ID (UUID v4) for identifying this key pair.
+ * @property {number} expiry - Unix timestamp (seconds) indicating when this key expires.
+ * @property {Object} publicKey - The public key in JWK format with JWKS metadata fields.
+ * @property {string} privateKey - The private key in PEM format (PKCS#1).
+ */
+
+/**
+ * Generates an RSA key pair and stores it in the keys array.
+ *
+ * @param {boolean} [expired=false] - If true, the key is created with an expiry in the past (1 hour ago).
+ *                                     If false, the key expires 1 hour from now.
+ * @returns {KeyData} The generated key data object containing public/private keys, kid, and expiry.
+ */
 function generateKey(expired = false) {
-  // Generate an RSA key pair
+  // Generate a 2048-bit RSA key pair; public key in JWK format for JWKS, private in PEM for signing
   const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
     publicKeyEncoding: {
@@ -16,16 +36,16 @@ function generateKey(expired = false) {
       type: 'pkcs1',
       format: 'pem',
     }
-  })
+  });
 
-  // Create a unique Key ID (kid)
+  // Create a unique Key ID (kid) using a UUID v4
   const kid = crypto.randomUUID();
 
-  // Set expiry timestamp (1 hour from now or 1 hour ago if expired)
+  // Set expiry: 1 hour in the past for expired keys, 1 hour in the future for valid keys
   const expiryOffset = expired ? -3600 : 3600;
   const expiry = Math.floor(Date.now() / 1000) + expiryOffset;
 
-  // Combine the data into a single object
+  // Build the key data object with JWKS-required metadata on the public key
   const keyData = {
     kid: kid,
     expiry: expiry,
@@ -38,12 +58,12 @@ function generateKey(expired = false) {
     privateKey: privateKey
   };
 
-  // Store the key in the array
+  // Store the key in the module-level array
   keys.push(keyData);
   return keyData;
 }
 
-// Generate initial keys, one valid and one expired
+// Generate initial keys on module load: one valid and one expired
 generateKey();
 generateKey(true);
 
@@ -51,6 +71,3 @@ module.exports = {
   keys,
   generateKey,
 };
-
-// FOR TESTING PURPOSES ONLY
-console.log(JSON.stringify(keys, null, 2));
