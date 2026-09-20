@@ -52,6 +52,16 @@ The server will start on `http://localhost:8080`.
 | POST   | `/auth`                     | Returns a signed, unexpired JWT          |
 | POST   | `/auth?expired=true`        | Returns a signed JWT using an expired key |
 
+## Running the Test Client Against the Server
+
+Ensure `gradebot.exe` is in the same directory as the `server.js` file.
+
+```bash
+./gradebot project-1 --port 8080 --run "node server.js"
+```
+
+This will build and run the server and then run the test client against it.
+
 ## Running the Test Suite
 
 Run the full test suite with coverage:
@@ -105,3 +115,11 @@ jwks-server/
 ├── package.json
 └── README.md
 ```
+
+## Screenshots
+
+### Test Client Results
+![Test Client Results](screenshots/test-client-results.png)
+
+### Test Suite Results
+![Test Suite Results](screenshots/test-suite-results.png)
