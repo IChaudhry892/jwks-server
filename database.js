@@ -25,7 +25,6 @@ function insertKey(pem, exp) {
   const stmt = db.prepare('INSERT INTO keys (key, exp) VALUES (?, ?)');
   const info = stmt.run(pem, exp);
 
-  console.log('Key inserted successfully.'); // FOR DEBUGGING
   return info.lastInsertRowid; // Return the ID of the inserted key
 }
 

@@ -1,13 +1,11 @@
 const crypto = require("crypto");
+const { insertKey, getKey } = require('./database');
 
 /**
  * @module keyManager
  * @description Manages RSA key pair generation, storage, and retrieval for the JWKS server.
  * Each key has an associated Key ID (kid) and expiry timestamp.
  */
-
-/** @type {Array<KeyData>} Array to store all generated key pairs (both valid and expired). */
-const keys = [];
 
 /**
  * @typedef {Object} KeyData
@@ -28,46 +26,48 @@ function generateKey(expired = false) {
   // Generate a 2048-bit RSA key pair; public key in JWK format for JWKS, private in PEM for signing
   const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
-    publicKeyEncoding: {
-      type: 'spki',
-      format: 'jwk',
-    },
     privateKeyEncoding: {
       type: 'pkcs1',
       format: 'pem',
     }
   });
 
-  // Create a unique Key ID (kid) using a UUID v4
-  const kid = crypto.randomUUID();
-
   // Set expiry: 1 hour in the past for expired keys, 1 hour in the future for valid keys
   const expiryOffset = expired ? -3600 : 3600;
   const expiry = Math.floor(Date.now() / 1000) + expiryOffset;
 
-  // Build the key data object with JWKS-required metadata on the public key
-  const keyData = {
-    kid: kid,
-    expiry: expiry,
-    publicKey: {
-      ...publicKey,
-      kid: kid,
-      alg: 'RS256',
-      use: 'sig',
-    },
-    privateKey: privateKey
-  };
+  // Store the private key in the database and retrieve its auto-incremented ID as the kid
+  const kid = insertKey(privateKey, expiry);
 
-  // Store the key in the module-level array
-  keys.push(keyData);
-  return keyData;
+  return { kid, expiry };
 }
 
-// Generate initial keys on module load: one valid and one expired
-generateKey();
-generateKey(true);
+// makes sure that there is always at least one valid and one expired key in the database
+function ensureKeys() {
+  if (getKey(false) === undefined) {
+    generateKey();
+  }
+  if (getKey(true) === undefined) {
+    generateKey(true);
+  }
+}
+
+// uses the database row of a private key to create a JWK object for the public key, including the kid and other JWKS metadata
+function rowToJWK(row) {
+  const publicJWK = crypto.createPublicKey(row.key).export({ format: 'jwk' });
+  
+  return {
+    ...publicJWK,
+    kid: String(row.kid),
+    alg: 'RS256',
+    use: 'sig'
+  };
+}
+
+ensureKeys(); // Generate initial keys on module load: one valid and one expired
 
 module.exports = {
-  keys,
+  ensureKeys,
   generateKey,
+  rowToJWK
 };
