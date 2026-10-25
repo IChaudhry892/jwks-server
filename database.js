@@ -4,7 +4,10 @@ const path = require('path');
 let db; // Declare the database variable to be used across functions
 
 function initializeDatabase() {
-  const dbPath = path.join(__dirname, 'totally_not_my_privateKeys.db');
+  // Jest sets NODE_ENV to 'test', so tests get a throwaway in-memory database instead of the real key file
+  const dbPath = process.env.NODE_ENV === 'test'
+    ? ':memory:'
+    : path.join(__dirname, 'totally_not_my_privateKeys.db');
   db = new Database(dbPath);
 
   // Create the keys table if it doesn't exist
