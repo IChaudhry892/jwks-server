@@ -1,79 +1,128 @@
-const { keys, generateKey } = require('../keyManager');
+const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
+const { initializeDatabase, getKey, getValidKeys } = require('../database');
+const { ensureKeys, generateKey, rowToJWK } = require('../keyManager');
 
-describe('keyManager', () => {
-  describe('initial key generation', () => {
-    test('should have at least 2 keys on module load', () => {
-      expect(keys.length).toBeGreaterThanOrEqual(2);
-    });
+// Tests run against an in-memory database (NODE_ENV=test), so the real key file is never touched
+const now = () => Math.floor(Date.now() / 1000);
 
-    test('should have at least one unexpired key', () => {
-      const currentTime = Math.floor(Date.now() / 1000);
-      const validKeys = keys.filter(key => key.expiry > currentTime);
-      expect(validKeys.length).toBeGreaterThanOrEqual(1);
-    });
+beforeAll(() => {
+  // Silence the "Database initialized successfully." log from each fresh database
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+});
 
-    test('should have at least one expired key', () => {
-      const currentTime = Math.floor(Date.now() / 1000);
-      const expiredKeys = keys.filter(key => key.expiry <= currentTime);
-      expect(expiredKeys.length).toBeGreaterThanOrEqual(1);
-    });
+afterAll(() => {
+  console.log.mockRestore();
+});
+
+beforeEach(() => {
+  // Each test starts with a fresh, empty in-memory database
+  initializeDatabase();
+});
+
+describe('generateKey()', () => {
+  test('should return the new kid and expiry', () => {
+    const key = generateKey();
+    expect(key).toEqual({ kid: 1, expiry: expect.any(Number) });
   });
 
-  describe('generateKey()', () => {
-    test('should return a key object with kid, expiry, publicKey, and privateKey', () => {
-      const key = generateKey();
-      expect(key).toHaveProperty('kid');
-      expect(key).toHaveProperty('expiry');
-      expect(key).toHaveProperty('publicKey');
-      expect(key).toHaveProperty('privateKey');
-    });
+  test('should generate a valid key expiring in about 1 hour by default', () => {
+    const before = now();
+    const { expiry } = generateKey();
+    expect(expiry).toBeGreaterThanOrEqual(before + 3600);
+    expect(expiry).toBeLessThanOrEqual(now() + 3600);
+  });
 
-    test('should generate a unique kid (UUID format)', () => {
-      const key1 = generateKey();
-      const key2 = generateKey();
-      expect(key1.kid).not.toEqual(key2.kid);
-      // UUID v4 format check
-      expect(key1.kid).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-      );
-    });
+  test('should generate a key that expired about 1 hour ago when expired=true', () => {
+    const before = now();
+    const { expiry } = generateKey(true);
+    expect(expiry).toBeGreaterThanOrEqual(before - 3600);
+    expect(expiry).toBeLessThanOrEqual(now() - 3600);
+  });
 
-    test('should generate a valid (unexpired) key by default', () => {
-      const currentTime = Math.floor(Date.now() / 1000);
-      const key = generateKey();
-      expect(key.expiry).toBeGreaterThan(currentTime);
-    });
+  test('should assign a unique, incrementing kid to each key', () => {
+    const key1 = generateKey();
+    const key2 = generateKey();
+    expect(key2.kid).toBe(key1.kid + 1);
+  });
 
-    test('should generate an expired key when expired=true', () => {
-      const currentTime = Math.floor(Date.now() / 1000);
-      const key = generateKey(true);
-      expect(key.expiry).toBeLessThanOrEqual(currentTime);
-    });
+  test('should save the private key to the database in PKCS1 PEM format', () => {
+    const { kid, expiry } = generateKey();
+    const row = getKey(false);
 
-    test('should add the generated key to the keys array', () => {
-      const lengthBefore = keys.length;
-      generateKey();
-      expect(keys.length).toBe(lengthBefore + 1);
-    });
+    expect(row.kid).toBe(kid);
+    expect(row.exp).toBe(expiry);
+    expect(row.key).toMatch(/^-----BEGIN RSA PRIVATE KEY-----/);
+    expect(row.key).toContain('-----END RSA PRIVATE KEY-----');
+  });
+});
 
-    test('should include RSA public key fields in JWK format', () => {
-      const key = generateKey();
-      expect(key.publicKey).toHaveProperty('kty', 'RSA');
-      expect(key.publicKey).toHaveProperty('n');  // modulus
-      expect(key.publicKey).toHaveProperty('e');  // exponent
-    });
+describe('ensureKeys()', () => {
+  test('should create one valid and one expired key in an empty database', () => {
+    ensureKeys();
+    expect(getKey(false)).toBeDefined();
+    expect(getKey(true)).toBeDefined();
+    expect(getValidKeys()).toHaveLength(1);
+  });
 
-    test('should include JWKS metadata on the public key', () => {
-      const key = generateKey();
-      expect(key.publicKey).toHaveProperty('kid', key.kid);
-      expect(key.publicKey).toHaveProperty('alg', 'RS256');
-      expect(key.publicKey).toHaveProperty('use', 'sig');
-    });
+  test('should not add keys when both a valid and an expired key exist', () => {
+    ensureKeys(); // creates kids 1 and 2
+    ensureKeys(); // should create nothing
 
-    test('should generate a PEM-formatted private key', () => {
-      const key = generateKey();
-      expect(key.privateKey).toContain('-----BEGIN RSA PRIVATE KEY-----');
-      expect(key.privateKey).toContain('-----END RSA PRIVATE KEY-----');
-    });
+    // The next key gets kid 3, so ensureKeys() didn't insert anything the second time
+    expect(generateKey().kid).toBe(3);
+  });
+
+  test('should only add the missing expired key', () => {
+    generateKey(); // kid 1, valid
+    ensureKeys();
+
+    expect(getKey(true).kid).toBe(2);
+    expect(getValidKeys()).toHaveLength(1);
+  });
+
+  test('should only add the missing valid key', () => {
+    generateKey(true); // kid 1, expired
+    ensureKeys();
+
+    expect(getKey(false).kid).toBe(2);
+    expect(getKey(true).kid).toBe(1);
+  });
+});
+
+describe('rowToJWK()', () => {
+  let row;
+  let jwk;
+
+  beforeEach(() => {
+    generateKey();
+    row = getKey(false);
+    jwk = rowToJWK(row);
+  });
+
+  test('should include the RSA public key fields', () => {
+    expect(jwk).toHaveProperty('kty', 'RSA');
+    expect(jwk).toHaveProperty('n');
+    expect(jwk).toHaveProperty('e', 'AQAB');
+  });
+
+  test('should include JWKS metadata with kid as a string', () => {
+    expect(jwk).toHaveProperty('kid', String(row.kid));
+    expect(typeof jwk.kid).toBe('string');
+    expect(jwk).toHaveProperty('alg', 'RS256');
+    expect(jwk).toHaveProperty('use', 'sig');
+  });
+
+  test('should not leak any private key fields', () => {
+    for (const privateField of ['d', 'p', 'q', 'dp', 'dq', 'qi']) {
+      expect(jwk).not.toHaveProperty(privateField);
+    }
+  });
+
+  test('should produce a public key that verifies tokens signed with the stored private key', () => {
+    const token = jwt.sign({ user: 'test' }, row.key, { algorithm: 'RS256' });
+    const publicKey = crypto.createPublicKey({ key: jwk, format: 'jwk' });
+
+    expect(() => jwt.verify(token, publicKey, { algorithms: ['RS256'] })).not.toThrow();
   });
 });
