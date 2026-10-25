@@ -28,6 +28,7 @@ function insertKey(pem, exp) {
   return info.lastInsertRowid; // Return the ID of the inserted key
 }
 
+// Retrieves a single key based on its expiry status (expired or valid)
 function getKey(expired) {
   const currentTime = Math.floor(Date.now() / 1000);
   
@@ -37,6 +38,7 @@ function getKey(expired) {
   return db.prepare(sql).get(currentTime);
 }
 
+// Retrieves all valid keys (not expired) from the database
 function getValidKeys() {
   const currentTime = Math.floor(Date.now() / 1000);
   const stmt = db.prepare('SELECT kid, key, exp FROM keys WHERE exp > ?');

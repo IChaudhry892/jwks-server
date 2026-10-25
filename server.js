@@ -11,10 +11,13 @@
 
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const { keys } = require('./keyManager');
+const { getKey, getValidKeys } = require('./database');
+const { rowToJWK } = require('./keyManager');
 
 const app = express();
 const PORT = 8080;
+
+app.use(express.json()); // Middleware to parse JSON request bodies
 
 /**
  * GET /.well-known/jwks.json
@@ -27,12 +30,8 @@ const PORT = 8080;
  */
 app.get('/.well-known/jwks.json', (req, res) => {
   try {
-    const currentTime = Math.floor(Date.now() / 1000);
-
     // Filter for keys where the expiry is still in the future
-    const validKeys = keys
-      .filter(key => key.expiry > currentTime)
-      .map(key => key.publicKey);
+    const validKeys = getValidKeys().map(rowToJWK);
 
     // Return all unexpired public keys in JWKS format
     return res.status(200).json({ keys: validKeys });
@@ -58,39 +57,27 @@ app.get('/.well-known/jwks.json', (req, res) => {
  */
 app.post('/auth', (req, res) => {
   try {
-    // Check if the "?expired=true" query parameter is present
-    const isExpiredRequested = req.query.expired === 'true';
-    const currentTime = Math.floor(Date.now() / 1000);
+    // Check if the "expired" query parameter is present (regardless of its value)
+    const isExpiredRequested = req.query.expired !== undefined;
 
     // Select the appropriate key: expired or unexpired based on query parameter
-    let targetKey;
-    if (isExpiredRequested) {
-      targetKey = keys.find(key => key.expiry <= currentTime);
-    } else {
-      targetKey = keys.find(key => key.expiry > currentTime);
-    }
+    const targetKeyRow = getKey(isExpiredRequested);
 
-    // Return 500 if no appropriate key is found in the keys array
-    if (!targetKey) {
+    // Return 500 if no appropriate key is found in the database
+    if (!targetKeyRow) {
       return res.status(500).json({ error: "Appropriate key not found." });
     }
 
     // Create a mock payload (no real user verification for this project)
     const payload = {
-      user: 'mock_user'
+      user: 'mock_user',
+      exp: targetKeyRow.exp // Set the token's expiration to match the key's expiry
     };
 
-    // Explicitly set the token's expiration to match the key's status
-    if (isExpiredRequested) {
-      payload.exp = currentTime - 3600; // Expired 1 hour ago
-    } else {
-      payload.exp = currentTime + 3600; // Expires in 1 hour
-    }
-
     // Sign the token using the selected private key with RS256 and embed the kid in the header
-    const token = jwt.sign(payload, targetKey.privateKey, {
+    const token = jwt.sign(payload, targetKeyRow.key, {
       algorithm: 'RS256',
-      keyid: targetKey.kid,
+      keyid: String(targetKeyRow.kid),
     });
 
     return res.status(200).send(token);

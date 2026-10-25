@@ -24,7 +24,7 @@ const { insertKey, getKey } = require('./database');
  */
 function generateKey(expired = false) {
   // Generate a 2048-bit RSA key pair; public key in JWK format for JWKS, private in PEM for signing
-  const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+  const { privateKey } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
     privateKeyEncoding: {
       type: 'pkcs1',
