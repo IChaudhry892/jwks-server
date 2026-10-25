@@ -3,3 +3,4 @@ node_modules/
 coverage/
 gradebot.exe
 totally_not_my_privateKeys.db
+check*.js
