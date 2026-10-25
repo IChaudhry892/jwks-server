@@ -1,7 +1,16 @@
+/**
+ * Unit tests for database.js: table schema, insertKey, getKey, getValidKeys,
+ * and SQL injection safety of the parameterized queries.
+ *
+ * Tests run against an in-memory database (NODE_ENV=test), so the real key file is never touched.
+ */
+
 const { initializeDatabase, insertKey, getKey, getValidKeys } = require('../database');
 
-// Tests run against an in-memory database (NODE_ENV=test), so the real key file is never touched
+/** @type {import('better-sqlite3').Database} Connection to the current test's fresh database. */
 let db;
+
+/** @returns {number} The current Unix timestamp in seconds. */
 const now = () => Math.floor(Date.now() / 1000);
 
 beforeAll(() => {

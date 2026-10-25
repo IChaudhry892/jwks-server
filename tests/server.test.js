@@ -1,14 +1,25 @@
+/**
+ * Endpoint tests for server.js using Supertest: the JWKS endpoint, POST /auth
+ * (valid and expired, with JSON and Basic auth credentials), HTTP method
+ * enforcement, unknown routes, and 500 error handling.
+ *
+ * Tests run against an in-memory database (NODE_ENV=test); loading keyManager
+ * adds one valid and one expired key.
+ */
+
 const crypto = require('crypto');
 const request = require('supertest');
 const jwt = require('jsonwebtoken');
 const { app } = require('../server');
 const { getKey } = require('../database');
 
-// Tests run against an in-memory database (NODE_ENV=test); loading keyManager adds one valid and one expired key
-
 /**
  * Verifies a JWT against the JWKS endpoint the same way the gradebot does:
  * find the JWK whose kid matches the token header, then check the signature with it.
+ *
+ * @param {string} token - The JWT returned by POST /auth.
+ * @returns {Promise<Object>} The verified token payload.
+ * @throws {Error} If no JWK matches the token's kid, or the signature or expiry check fails.
  */
 async function verifyWithJwks(token) {
   const { header } = jwt.decode(token, { complete: true });
@@ -30,9 +41,8 @@ describe('GET /.well-known/jwks.json', () => {
     expect(Array.isArray(res.body.keys)).toBe(true);
   });
 
-  test('should only contain unexpired keys', async () => {
+  test('should return only keys with the required JWK fields', async () => {
     const res = await request(app).get('/.well-known/jwks.json');
-    const currentTime = Math.floor(Date.now() / 1000);
 
     // Every key returned should have required JWK fields
     for (const key of res.body.keys) {
@@ -261,6 +271,9 @@ describe('Error handling', () => {
   /**
    * Loads a separate copy of the server whose database module is replaced
    * with the given fake, so database failures can be simulated.
+   *
+   * @param {Object} fakeDatabase - Stand-in for database.js with getKey and getValidKeys.
+   * @returns {import('express').Express} The isolated Express app.
    */
   function loadAppWithDatabase(fakeDatabase) {
     let isolatedApp;

@@ -1,9 +1,15 @@
+/**
+ * Unit tests for keyManager.js: generateKey, ensureKeys, and rowToJWK.
+ *
+ * Tests run against an in-memory database (NODE_ENV=test), so the real key file is never touched.
+ */
+
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { initializeDatabase, getKey, getValidKeys } = require('../database');
 const { ensureKeys, generateKey, rowToJWK } = require('../keyManager');
 
-// Tests run against an in-memory database (NODE_ENV=test), so the real key file is never touched
+/** @returns {number} The current Unix timestamp in seconds. */
 const now = () => Math.floor(Date.now() / 1000);
 
 beforeAll(() => {
