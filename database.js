@@ -1,6 +1,5 @@
 const Database = require('better-sqlite3');
 const path = require('path');
-const fs = require('fs');
 
 function initializeDatabase() {
   const dbPath = path.join(__dirname, 'totally_not_my_privateKeys.db');
@@ -19,3 +18,22 @@ function initializeDatabase() {
 
   return db;
 }
+
+function insertKey(pem, exp) {
+
+}
+
+function getKey(expired) {
+
+}
+
+function getValidKeys() {
+
+}
+
+module.exports = {
+  initializeDatabase,
+  insertKey,
+  getKey,
+  getValidKeys
+};
